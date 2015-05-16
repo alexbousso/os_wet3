@@ -1,13 +1,23 @@
 #ifndef __THREAD_POOL__
 #define __THREAD_POOL__
 
-typedef struct thread_pool
-{
- //The field x is here because a struct without fields
- //doesn't compile. Remove it once you add fields of your own
- int x;
- //TODO - FILL THIS WITH YOUR FIELDS
-}ThreadPool;
+#include "osqueue.h"
+
+#define DEBUG_ON // TODO: Switch to zero
+
+typedef struct thread_pool {
+	// The number of threads when ThreadPool is created
+	int numberOfThreads;
+	
+	// A queue of tasks waiting to be inserted in a thread
+	OSQueue *waitingTasks;
+	
+	// A flag that signals the threads that tpDestroy() has been called
+	int destroyThreads;
+	// After calling tpDestroy we will turn on this flag which will prevent tpInsertTask to work.  
+	int dontAddNewTasks;
+	
+} ThreadPool;
 
 ThreadPool* tpCreate(int numOfThreads);
 
