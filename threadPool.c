@@ -30,7 +30,7 @@ Result wrapperToTask(ThreadPool* threadPool) {
 		TaskToRun *tsk;
 		
 		// condition
-		while (osIsQueueEmpty(threadPool.waitingTasks)) {
+		while (osIsQueueEmpty(&(threadPool->waitingTasks))) {
 			// wait();
 		}
 		// LOCK!!!
@@ -60,8 +60,18 @@ ThreadPool* tpCreate(int numOfThreads) {
 	tp->numberOfThreads = numOfThreads;
 	tp->dontAddNewTasks = 0;
 	
+	if (pthread_mutex_init(&(tp->tasksQueueLock),
+			PTHREAD_MUTEX_ERRORCHECK) != 0) {
+		free(tp);
+		#ifdef DEBUG_ON
+		fprintf(stderr, "ERROR: pthread_mutex_init() failed!\n");
+		#endif
+		return NULL;
+	}
+	
 	tp->waitingTasks = osCreateQueue();
 	if (!tp->waitingTasks) {
+		pthread_mutex_destroy(&(tp->tasksQueueLock));
 		free(tp);
 		#ifdef DEBUG_ON
 		fprintf(stderr, "ERROR: osCreateQueue() returned null!\n");
@@ -74,6 +84,7 @@ ThreadPool* tpCreate(int numOfThreads) {
 		thread *t;
 		if (pthread_create(t, NULL, &wrappperToTask, tp) != 0) {
 			free(tp->waitingTasks);
+			pthread_mutex_destroy(&(tp->tasksQueueLock));
 			free(tp);
 			#ifdef DEBUG_ON
 			fprintf(stderr, "ERROR: pthread_create() failed!\n");
@@ -85,6 +96,7 @@ ThreadPool* tpCreate(int numOfThreads) {
 
 void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	if (!threadPool) return;
+	
 	threadPool->dontAddNewTasks = 1;
 	if (shouldWaitForTasks != 0) {
 		// wait for enqueued tasks
@@ -106,12 +118,17 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *),
 		return -1;
 	}
 	
-	// LOCK!!!
+	if (threadPool->dontAddNewTasks) {
+		return -1;
+	}
+	
+	pthread_mutex_lock(&(threadPool->tasksQueueLock));
 	tsk->computeFunc = computeFunc;
 	tsk->param = param;
-	osEnqueue(threadPool.waitingTasks, tsk);
-	// UNLOCK
-	//check if destroy
+	osEnqueue(&(threadPool->waitingTasks), tsk);
+	pthread_mutex_unlock(&(threadPool->tasksQueueLock));
+	
+	return 0;
 }
 
 
