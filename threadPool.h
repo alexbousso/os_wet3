@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include "osqueue.h"
+#include <pthread.h>
 
 #define DEBUG_ON // TODO: Remove!!!
 
@@ -11,7 +12,7 @@ typedef struct thread_pool {
 	int numberOfThreads;
 	
 	//An array of all the ID of the threads
-	thread_t* threadsIDs;
+	pthread_t* threadsIDs;
 	
 	// A queue of tasks waiting to be inserted in a thread
 	OSQueue *waitingTasks;
@@ -28,6 +29,8 @@ typedef struct thread_pool {
 	//lock for the destroy function - send signal when Queue is empty and we can Destroy
 	pthread_mutex_t DestroyLock;
 	
+	//lock for updating the dontAddNewTasks flag
+	pthread_mutex_t dontAddNewTaskLock;
 	//Condition that sends signal when the Task you is not empty 
 	pthread_cond_t DestroyIsOnOrTaskQNotEmpty;
 	

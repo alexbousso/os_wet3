@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include "threadPool.h"
+#include <assert.h>
 
 #ifdef DEBUG_ON
 #include <stdio.h>
@@ -11,63 +12,69 @@ typedef struct taskToRun_t {
 	void (*computeFunc) (void *);
 } TaskToRun;
 
-typedef struct result_t {
+typedef enum {
 	SUCCESS,
 	NULL_ARGUMENT,
 	QUEUE_FAILURE,
 } Result;
 
-Result wrapperToTask(ThreadPool* threadPool) {
+void wrapperToTask(ThreadPool* threadPool) {
+	#ifdef DEBUG_ON
+	fprintf(stderr, "shani is cool!\n");
+	#endif
 	if (!threadPool) {
 		// mabye we should return an int for error and check in tpDestroy???
 		#ifdef DEBUG_ON
 		fprintf(stderr, "ERROR: wrapperToTask() received a null argument!\n");
 		#endif
-		return NULL_ARGUMENT;
+		return;// NULL_ARGUMENT;
 	}
 	
-	while (tp->destroyThreads == 0) {
+	while (threadPool->destroyThreads) {
 		TaskToRun *tsk;
 		
-		pthread_mutex_lock(&threadPool->tasksQueueLock);
 		// condition
 		// Tzoof
-		while (osIsQueueEmpty(&(threadPool->waitingTasks))) {
+		pthread_mutex_lock(&threadPool->tasksQueueLock);
+		pthread_mutex_lock(&threadPool->dontAddNewTaskLock);
+		while (threadPool->dontAddNewTasks == 0 && osIsQueueEmpty(threadPool->waitingTasks)) {
 			pthread_cond_wait(&(threadPool->DestroyIsOnOrTaskQNotEmpty), &(threadPool->tasksQueueLock) );
 		}
-		//This means Destroy is on - the condition was sent from destroy
-		if(osIsQueueEmpty(&(threadPool->waitingTasks)) && tp->dontAddNewTasks){
-				return SUCCESS;
+		if(threadPool->dontAddNewTasks && osIsQueueEmpty(threadPool->waitingTasks)){
+			return;// SUCCESS;
 		}
-		
-		tsk = osDequeue(threadPool.waitingTasks);
+		pthread_mutex_unlock(&threadPool->dontAddNewTaskLock);
+		//now: Q is not empty!
+		tsk = osDequeue(threadPool->waitingTasks);
 		if (!tsk) {
 			// mabye we should return an int for error and check in tpDestroy???
 			#ifdef DEBUG_ON
 			fprintf(stderr, "ERROR: osDequeue() returned null!\n");
 			#endif
-			return QUEUE_FAILURE;
+			return;// QUEUE_FAILURE;
 		}
 		pthread_mutex_unlock(&threadPool->tasksQueueLock);
+		
 		//Tzoof 
 		// Signals that the Queue is empty - for destroy.
-		if(!osIsQueueEmpty(&(threadPool->waitingTasks))){
+		if(!osIsQueueEmpty(threadPool->waitingTasks)){
 			pthread_cond_signal(&(threadPool->TaskQueueEmpty));
 		}
 		tsk->computeFunc(tsk->param);
 	}
 	
-	return SUCCESS;
+	return;// SUCCESS;
 }
 
 ThreadPool* tpCreate(int numOfThreads) {
 	int i;
-
+	pthread_mutexattr_t mutexattr;
+	pthread_mutexattr_settype(&mutexattr, PTHREAD_MUTEX_ERRORCHECK_NP);
 	ThreadPool *tp = malloc(sizeof(ThreadPool));
 	if (!tp) {
 		return NULL;
 	}
-	tp->threadsIDs = malloc(sizeof(thread_t)*numOfThreads);
+	tp->threadsIDs = malloc(sizeof(pthread_t)*numOfThreads);
 	if (!tp->threadsIDs) {
 		free(tp);
 		return NULL;
@@ -76,8 +83,7 @@ ThreadPool* tpCreate(int numOfThreads) {
 	tp->numberOfThreads = numOfThreads;
 	tp->dontAddNewTasks = 0;
 	
-	if (pthread_mutex_init(&(tp->tasksQueueLock),
-			PTHREAD_MUTEX_ERRORCHECK) != 0) {
+	if (pthread_mutex_init(&(tp->tasksQueueLock),&mutexattr) != 0) {
 		free(tp->threadsIDs);
 		free(tp);
 		#ifdef DEBUG_ON
@@ -85,9 +91,18 @@ ThreadPool* tpCreate(int numOfThreads) {
 		#endif
 		return NULL;
 	}
-	if (pthread_mutex_init(&(tp->DestroyLock),
-			PTHREAD_MUTEX_ERRORCHECK) != 0) {
+	if (pthread_mutex_init(&(tp->DestroyLock),&mutexattr) != 0) {
 		pthread_mutex_destroy(&(tp->tasksQueueLock));
+		free(tp->threadsIDs);
+		free(tp);
+		#ifdef DEBUG_ON
+		fprintf(stderr, "ERROR: pthread_mutex_init() failed!\n");
+		#endif
+		return NULL;
+	}
+	if (pthread_mutex_init(&(tp->dontAddNewTaskLock),&mutexattr) != 0) {
+		pthread_mutex_destroy(&(tp->tasksQueueLock));
+		pthread_mutex_destroy(&(tp->DestroyLock));
 		free(tp->threadsIDs);
 		free(tp);
 		#ifdef DEBUG_ON
@@ -100,6 +115,7 @@ ThreadPool* tpCreate(int numOfThreads) {
 	if (!tp->waitingTasks) {
 		pthread_mutex_destroy(&(tp->tasksQueueLock));
 		pthread_mutex_destroy(&(tp->DestroyLock));
+		pthread_mutex_destroy(&(tp->dontAddNewTaskLock));
 		free(tp->threadsIDs);
 		free(tp);
 		#ifdef DEBUG_ON
@@ -111,11 +127,15 @@ ThreadPool* tpCreate(int numOfThreads) {
 	
 	// Creating new threads:
 	for (i = 0; i < numOfThreads; i++) {
-		thread_t t;
-		if (pthread_create(&t, NULL, &wrappperToTask, tp) != 0) {
+		pthread_t t;
+		#ifdef DEBUG_ON
+		fprintf(stderr, "hi!\n");
+		#endif
+		if (pthread_create(&t, NULL, (void* (*)(void *))&wrapperToTask, tp) != 0) {
 			free(tp->waitingTasks);
 			pthread_mutex_destroy(&(tp->tasksQueueLock));
 			pthread_mutex_destroy(&(tp->DestroyLock));
+			pthread_mutex_destroy(&(tp->dontAddNewTaskLock));
 			free(tp->threadsIDs);
 			free(tp);
 			#ifdef DEBUG_ON
@@ -123,21 +143,26 @@ ThreadPool* tpCreate(int numOfThreads) {
 			#endif
 			return NULL;
 		}
-		threadsIDs[i]=t;
+		tp->threadsIDs[i]=t;
 	}
+	#ifdef DEBUG_ON
+	fprintf(stderr, "bi!\n");
+	#endif
 }
 
 void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	int i;
 	if (!threadPool) return;
 	
+	pthread_mutex_lock(&threadPool->dontAddNewTaskLock);
 	threadPool->dontAddNewTasks = 1;
+	pthread_mutex_unlock(&threadPool->dontAddNewTaskLock);
 	
 	//if we shouldn't run all the waiting tasks in the Queue before destroy.
 	if (!shouldWaitForTasks) {
 		pthread_mutex_lock(&threadPool->tasksQueueLock);
-		while(!osIsQueueEmptytheadPool->waitingTasks){
-			osDequeue(osIsQueueEmptytheadPool->waitingTasks);
+		while(!osIsQueueEmpty(threadPool->waitingTasks)){
+			osDequeue(threadPool->waitingTasks);
 		}
 		pthread_mutex_unlock(&threadPool->tasksQueueLock);
 	}
@@ -146,7 +171,7 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	/*Checking that the task queue is empty - if we should not wait for that - we cleared the
 	Queue in the last paragraph */
 	pthread_mutex_lock(&threadPool->DestroyLock);
-	while (!osIsQueueEmpty(&(threadPool->waitingTasks))) {
+	while (!osIsQueueEmpty(threadPool->waitingTasks)) {
 		pthread_cond_wait(&(threadPool->TaskQueueEmpty),&threadPool->DestroyLock);
 	}
 	threadPool->destroyThreads = 1;
@@ -154,17 +179,19 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 
 	
 	// wait for threads to finish
-	for(i=0; i<theadPool->numOfThreads; i++){
+	for(i=0; i<threadPool->numberOfThreads; i++){
 		//Tzoof
 		//This signal is sent so that the wrapper won't wait for a new task when no task will be created;
-		pthread_cond_signal(&(threadPool->DestroyIsOnOrTaskQNotEmpty));
-		pthread_join(threadsIDs[i], NULL);
+		pthread_cond_broadcast(&(threadPool->DestroyIsOnOrTaskQNotEmpty));
+		pthread_join(threadPool->threadsIDs[i], NULL);
 	}
 	
 	// free threadPool
 	free(threadPool->waitingTasks);
 	pthread_mutex_destroy(&(threadPool->tasksQueueLock));
-	free(theadPool);
+	pthread_mutex_destroy(&(threadPool->DestroyLock));
+	pthread_mutex_destroy(&(threadPool->dontAddNewTaskLock));
+	free(threadPool);
 	
 }
 
@@ -183,9 +210,22 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *),
 	}
 	
 	pthread_mutex_lock(&(threadPool->tasksQueueLock));
+	#ifdef DEBUG_ON
+	fprintf(stderr, "aaaaa!\n");
+	#endif
 	tsk->computeFunc = computeFunc;
 	tsk->param = param;
-	osEnqueue(&(threadPool->waitingTasks), tsk);
+	#ifdef DEBUG_ON
+	if (!threadPool) {
+		fprintf(stderr, "No threadPool!\n");
+		return -1;
+	}
+	if (!threadPool->waitingTasks) {
+		fprintf(stderr, "No threadPool->waitingTasks!\n");
+		return -1;
+	}
+	#endif
+	osEnqueue(threadPool->waitingTasks, tsk);
 	pthread_mutex_unlock(&(threadPool->tasksQueueLock));
 	pthread_cond_signal(&(threadPool->DestroyIsOnOrTaskQNotEmpty));
 	
