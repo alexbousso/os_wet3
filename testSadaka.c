@@ -484,35 +484,35 @@ int main()
    
 
    printf("test_create_and_destroy...\n");
-   //test_create_and_destroy();
+   test_create_and_destroy();
 
 
    printf("test_thread_pool_sanity...\n");
-   //test_thread_pool_sanity();
+   test_thread_pool_sanity();
 
 
    printf("test_agressive, this might take a while...\n");
-   //test_agressive();
+   test_agressive();
 
 
    printf("test_single_thread_many_tasks...\n");
-   //test_single_thread_many_tasks();
+   test_single_thread_many_tasks();
 
 
    printf("test_many_threads_single_task...\n");
-   //test_many_threads_single_task();
+   test_many_threads_single_task();
 
 
    printf("test_destroy_should_wait_for_tasks #1 (more threads then tasks)...\n");
-   //test_destroy_should_wait_for_tasks_1();
+   test_destroy_should_wait_for_tasks_1();
 
 
    printf("test_destroy_should_wait_for_tasks #2 (more tasks then threads)...\n");
-   //test_destroy_should_wait_for_tasks_2();
+   test_destroy_should_wait_for_tasks_2();
 
 
    printf("test_destroy_should_not_wait_for_tasks...\n");
-   //test_destroy_should_not_wait_for_tasks();
+   test_destroy_should_not_wait_for_tasks();
 
 
    printf("test_destroy_twice...\n");
