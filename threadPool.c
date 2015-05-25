@@ -43,10 +43,6 @@ static Result wrapperToTask(ThreadPool* threadPool) {
 		
 		printVerbose("try to lock tasksQueueLock (wrapper)");
 		pthread_mutex_lock(&threadPool->tasksQueueLock);
-
-		//printVerbose("try to lock dontAddNewTaskLock (wrapper)");
-		//pthread_mutex_lock(&threadPool->dontAddNewTaskLock);
-		//printVerbose("dontAddNewTaskLock locked (wrapper)");
 		
 		while (threadPool->dontAddNewTasks == 0 && osIsQueueEmpty(threadPool->waitingTasks)) {
 			pthread_cond_wait(&(threadPool->DestroyIsOnOrTaskQNotEmpty), &(threadPool->tasksQueueLock));
@@ -55,13 +51,8 @@ static Result wrapperToTask(ThreadPool* threadPool) {
 		printVerbose("tasksQueueLock locked (wrapper)");
 		if (threadPool->dontAddNewTasks && osIsQueueEmpty(threadPool->waitingTasks)) {
 			pthread_mutex_unlock(&threadPool->tasksQueueLock);
-			//pthread_cond_signal(&(threadPool->TaskQueueEmpty));
-			//print("DestroyLock signal sent  (wrapper)");
 			return SUCCESS;
 		}
-		
-		//pthread_mutex_unlock(&threadPool->dontAddNewTaskLock);
-		//print("dontAddNewTaskLock unlocked (wrapper)");
 		
 		//now: Q is not empty!
 		tsk = osDequeue(threadPool->waitingTasks);
@@ -78,6 +69,7 @@ static Result wrapperToTask(ThreadPool* threadPool) {
 			printVerbose("tasksQueueLock signal sent  (wrapper)");
 		}
 		tsk->computeFunc(tsk->param);
+		free(tsk);
 	}
 	
 	printVerbose("Quiting wrapper");
@@ -148,15 +140,9 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	int i;
 	if (!threadPool) return;
 	if (threadPool->destroyThreads != 0) return;
-
-	//print("try to lock dontAddNewTaskLock (tpDestroy)");
-	//pthread_mutex_lock(&threadPool->dontAddNewTaskLock);
-	//print("dontAddNewTaskLock locked  (tpDestroy)");
 	
 	threadPool->dontAddNewTasks = 1;
 	pthread_cond_broadcast(&(threadPool->DestroyIsOnOrTaskQNotEmpty));
-	//pthread_mutex_unlock(&threadPool->dontAddNewTaskLock);
-	//print("dontAddNewTaskLock unlocked  (tpDestroy)");
 	
 	//if we shouldn't run all the waiting tasks in the Queue before destroy.
 	if (!shouldWaitForTasks) {
@@ -200,8 +186,8 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	// free threadPool
 	free(threadPool->waitingTasks);
 	pthread_mutex_destroy(&(threadPool->tasksQueueLock));
+	free(threadPool->threadsIDs);
 	free(threadPool);
-	
 }
 
 int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *),
@@ -234,24 +220,4 @@ int tpInsertTask(ThreadPool* threadPool, void (*computeFunc) (void *),
 	printVerbose("tasksQueueLock signal sent  (tpInsertTask)");
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
