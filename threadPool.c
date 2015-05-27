@@ -7,14 +7,14 @@
 #include <stdio.h>
 #endif
 
-static void print(const char *msg) {
+static inline void print(const char *msg) {
 	#ifdef DEBUG_ON
 	fprintf(stderr, msg);
 	fprintf(stderr, "\n");
 	#endif
 }
 
-static void printVerbose(const char *msg) {
+static inline void printVerbose(const char *msg) {
 	#ifdef DEBUG_VERBOSE
 	fprintf(stdout, msg);
 	fprintf(stdout, "\n");
@@ -116,7 +116,6 @@ ThreadPool* tpCreate(int numOfThreads) {
 		print("ERROR: osCreateQueue() returned null!");
 		return NULL;
 	}
-	//TODO: what if someone enters TaskQueue before we checked if it's legit
 	
 	// Creating new threads:
 	for (i = 0; i < numOfThreads; i++) {
@@ -140,6 +139,7 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 	int i;
 	if (!threadPool) return;
 	if (threadPool->destroyThreads != 0) return;
+	if (threadPool->dontAddNewTasks != 0) return;
 	
 	threadPool->dontAddNewTasks = 1;
 	pthread_cond_broadcast(&(threadPool->DestroyIsOnOrTaskQNotEmpty));
@@ -158,7 +158,6 @@ void tpDestroy(ThreadPool* threadPool, int shouldWaitForTasks) {
 		pthread_mutex_unlock(&threadPool->tasksQueueLock);
 		printVerbose("tasksQueueLock unlocked  (tpDestroy)");	
 	}
-	//TODO::Are we sure that we empty all the queue here?
 	
 	/*Checking that the task queue is empty - if we should not wait for that - we cleared the
 	Queue in the last paragraph */
